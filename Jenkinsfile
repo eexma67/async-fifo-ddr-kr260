@@ -90,6 +90,7 @@ pipeline {
                                 ${WORKSPACE}/rtl/axi_dma_controller.sv \
                                 ${WORKSPACE}/rtl/async_fifo_ddr_top.sv \
                                 ${WORKSPACE}/tb/uvm/fifo_ddr_interfaces.sv \
+                                ${WORKSPACE}/tb/uvm/axi4_mem_slave.sv \
                                 ${WORKSPACE}/tb/uvm/env/fifo_ddr_env_pkg.sv \
                                 ${WORKSPACE}/tb/uvm/sequences/fifo_ddr_sequences.sv \
                                 ${WORKSPACE}/tb/uvm/tests/fifo_ddr_tests.sv \
