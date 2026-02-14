@@ -7,6 +7,9 @@
 
 `include "uvm_macros.svh"
 import uvm_pkg::*;
+import fifo_ddr_env_pkg::*;
+import fifo_ddr_seq_pkg::*;
+import fifo_ddr_test_pkg::*;
 
 module tb_top;
 

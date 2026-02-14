@@ -49,9 +49,13 @@ if {[glob -nocomplain ${xdc_dir}/*.xdc] ne ""} {
 # In a real build, you'd source a BD TCL script here
 # source ${rtl_dir}/../scripts/create_bd_ddr4.tcl
 
-# ---- Synthesis ----
+# ---- Synthesis (Out-of-Context for IP module) ----
+# Since this RTL is an IP that will be wrapped in a block design with
+# PS DDR controller, we synthesize out-of-context (no I/O buffers).
 puts ">>> Running Synthesis..."
 set synth_start [clock seconds]
+
+set_property -name {STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS} -value {-mode out_of_context} -objects [get_runs synth_1]
 
 launch_runs synth_1 -jobs 4
 wait_on_run synth_1
@@ -70,45 +74,21 @@ open_run synth_1
 report_utilization -file ${project_name}_synth_util.rpt
 report_timing_summary -file ${project_name}_synth_timing.rpt
 
-# ---- Implementation ----
-puts ">>> Running Implementation..."
-set impl_start [clock seconds]
-
-launch_runs impl_1 -to_step write_bitstream -jobs 4
-wait_on_run impl_1
-
-set impl_end [clock seconds]
-puts "Implementation completed in [expr {$impl_end - $impl_start}] seconds"
-
-# Check implementation status
-if {[get_property STATUS [get_runs impl_1]] != "write_bitstream Complete!"} {
-    puts "ERROR: Implementation failed!"
-    exit 1
-}
-
-# ---- Post-Implementation Reports ----
-open_run impl_1
+# ---- Post-Synthesis Reports (OOC mode - no implementation/bitstream) ----
+# Implementation requires a block design wrapper with PS/DDR interconnect.
+# For CI/CD, we validate synthesis, utilization, and estimated timing.
+puts ">>> Skipping implementation (OOC mode - IP module)"
+puts ">>> To generate a bitstream, wrap this IP in a block design with PS."
 
 report_utilization -file ${project_name}_impl_util.rpt
 report_timing_summary -max_paths 20 -file ${project_name}_impl_timing.rpt
-report_power -file ${project_name}_power.rpt
-report_drc -file ${project_name}_drc.rpt
-report_methodology -file ${project_name}_methodology.rpt
 
-# ---- Check Timing ----
-set wns [get_property STATS.WNS [get_runs impl_1]]
-set tns [get_property STATS.TNS [get_runs impl_1]]
-
+# ---- Check Timing (post-synthesis estimate) ----
 puts "============================================"
-puts "  TIMING SUMMARY"
-puts "  WNS: ${wns} ns"
-puts "  TNS: ${tns} ns"
+puts "  SYNTHESIS COMPLETE (Out-of-Context)"
+puts "  Resource utilization in: ${project_name}_synth_util.rpt"
+puts "  Timing estimate in:     ${project_name}_synth_timing.rpt"
 puts "============================================"
 
-if {$wns < 0} {
-    puts "WARNING: Timing not met! WNS = ${wns} ns"
-    # Don't fail - let Jenkins decide based on threshold
-}
-
-puts "Build complete. Bitstream: ./${project_name}/${project_name}.runs/impl_1/${project_name}_top.bit"
+puts "Build complete."
 close_project
