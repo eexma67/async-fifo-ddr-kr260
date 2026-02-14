@@ -51,10 +51,10 @@ pipeline {
             steps {
                 sh '''
                     echo "=== Verilator Lint ==="
-                    verilator --lint-only -Wall \
-                        +define+FIFO_DEPTH=${FIFO_DEPTH} \
-                        +define+DATA_WIDTH=${DATA_WIDTH} \
-                        +define+DDR_BURST_LEN=${DDR_BURST_LEN} \
+                    verilator --lint-only -Wall -Wno-fatal \
+                        -DFIFO_DEPTH=${FIFO_DEPTH} \
+                        -DDATA_WIDTH=${DATA_WIDTH} \
+                        -DDDR_BURST_LEN=${DDR_BURST_LEN} \
                         rtl/async_fifo.sv \
                         rtl/axi_dma_controller.sv \
                         rtl/async_fifo_ddr_top.sv \
@@ -82,9 +82,9 @@ pipeline {
 
                             echo "=== Compiling RTL + UVM Testbench ==="
                             xvlog -sv \
-                                +define+FIFO_DEPTH=${FIFO_DEPTH} \
-                                +define+DATA_WIDTH=${DATA_WIDTH} \
-                                +define+DDR_BURST_LEN=${DDR_BURST_LEN} \
+                                -d FIFO_DEPTH=${FIFO_DEPTH} \
+                                -d DATA_WIDTH=${DATA_WIDTH} \
+                                -d DDR_BURST_LEN=${DDR_BURST_LEN} \
                                 -L uvm \
                                 ${WORKSPACE}/rtl/async_fifo.sv \
                                 ${WORKSPACE}/rtl/axi_dma_controller.sv \
