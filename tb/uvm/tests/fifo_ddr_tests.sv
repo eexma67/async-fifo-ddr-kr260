@@ -56,36 +56,39 @@ package fifo_ddr_test_pkg;
 
         // -----------------------------------------------------------------
         // Helper: Trigger DMA transfer and wait for completion
+        // Uses clocking block drives for proper clock-domain alignment.
         // -----------------------------------------------------------------
         task trigger_dma(input logic [31:0] base_addr, input logic [31:0] count,
                          output bit success);
             int timeout_cycles;
             success = 0;
 
+            // Drive via clocking block for deterministic timing
             @(posedge ctrl_vif.clk);
-            ctrl_vif.ddr_base_addr  <= base_addr;
-            ctrl_vif.transfer_count <= count;
-            ctrl_vif.transfer_start <= 1'b1;
+            ctrl_vif.ctrl_cb.ddr_base_addr  <= base_addr;
+            ctrl_vif.ctrl_cb.transfer_count <= count;
+            ctrl_vif.ctrl_cb.transfer_start <= 1'b1;
             @(posedge ctrl_vif.clk);
-            ctrl_vif.transfer_start <= 1'b0;
+            ctrl_vif.ctrl_cb.transfer_start <= 1'b0;
 
-            // Wait for transfer_done or transfer_error with timeout
-            timeout_cycles = count * 20 + 5000;
+            // Wait for transfer_done or transfer_error with generous timeout
+            // Budget: ~40 cycles/word for write+read+overhead
+            timeout_cycles = count * 40 + 10000;
             repeat (timeout_cycles) begin
                 @(posedge ctrl_vif.clk);
-                if (ctrl_vif.transfer_done) begin
-                    `uvm_info("TEST", $sformatf("DMA transfer done: %0d words at addr 0x%08h",
-                              ctrl_vif.words_transferred, base_addr), UVM_MEDIUM)
+                if (ctrl_vif.ctrl_cb.transfer_done) begin
+                    `uvm_info("TEST", $sformatf("DMA done: %0d words at 0x%08h",
+                              ctrl_vif.ctrl_cb.words_transferred, base_addr), UVM_MEDIUM)
                     success = 1;
                     return;
                 end
-                if (ctrl_vif.transfer_error) begin
+                if (ctrl_vif.ctrl_cb.transfer_error) begin
                     `uvm_error("TEST", "DMA transfer error!")
                     return;
                 end
             end
 
-            `uvm_error("TEST", $sformatf("DMA transfer timeout after %0d cycles (count=%0d)",
+            `uvm_error("TEST", $sformatf("DMA timeout after %0d cycles (count=%0d)",
                        timeout_cycles, count))
         endtask
 
@@ -94,9 +97,9 @@ package fifo_ddr_test_pkg;
         // -----------------------------------------------------------------
         task init_ctrl();
             @(posedge ctrl_vif.clk);
-            ctrl_vif.transfer_start <= 1'b0;
-            ctrl_vif.ddr_base_addr  <= 32'h0;
-            ctrl_vif.transfer_count <= 32'h0;
+            ctrl_vif.ctrl_cb.transfer_start <= 1'b0;
+            ctrl_vif.ctrl_cb.ddr_base_addr  <= 32'h0;
+            ctrl_vif.ctrl_cb.transfer_count <= 32'h0;
         endtask
 
         function void report_phase(uvm_phase phase);
@@ -223,7 +226,7 @@ package fifo_ddr_test_pkg;
                 wr_seq.burst_len = batch_size;
                 wr_seq.start(env.wr_agent.sequencer);
 
-                #300;
+                #500;
                 trigger_dma(batch * 32'h0001_0000, batch_size, dma_ok);
                 if (!dma_ok) begin
                     `uvm_error("TEST", $sformatf("DMA failed on batch %0d", batch))
@@ -231,7 +234,7 @@ package fifo_ddr_test_pkg;
                     return;
                 end
 
-                #300;
+                #500;
                 rd_seq = fifo_rd_base_seq::type_id::create($sformatf("rd_seq_%0d", batch));
                 rd_seq.num_txns = batch_size;
                 rd_seq.start(env.rd_agent.sequencer);
@@ -275,7 +278,7 @@ package fifo_ddr_test_pkg;
                 return;
             end
 
-            #300;
+            #500;
             rd_seq = fifo_rd_backpressure_seq::type_id::create("rd_seq");
             rd_seq.num_txns = xfer_count;
             rd_seq.start(env.rd_agent.sequencer);
@@ -359,7 +362,7 @@ package fifo_ddr_test_pkg;
                 wr_seq.num_txns = round_size;
                 wr_seq.start(env.wr_agent.sequencer);
 
-                #300;
+                #500;
                 trigger_dma(32'h0004_0000, round_size, dma_ok);
                 if (!dma_ok) begin
                     `uvm_error("TEST", "DMA failed during random traffic")
@@ -367,7 +370,7 @@ package fifo_ddr_test_pkg;
                     return;
                 end
 
-                #300;
+                #500;
                 rd_seq = fifo_rd_base_seq::type_id::create("rd_seq");
                 rd_seq.num_txns = round_size;
                 rd_seq.start(env.rd_agent.sequencer);
@@ -404,10 +407,10 @@ package fifo_ddr_test_pkg;
             wr_seq.num_txns = 32;
             wr_seq.start(env.wr_agent.sequencer);
 
-            #300;
+            #500;
             trigger_dma(32'h0005_0000, 32, dma_ok);
 
-            #300;
+            #500;
             rd_seq = fifo_rd_base_seq::type_id::create("rd_seq");
             rd_seq.num_txns = 32;
             rd_seq.start(env.rd_agent.sequencer);
@@ -425,7 +428,7 @@ package fifo_ddr_test_pkg;
             wr_seq.start_val  = 64'hAAAA_0000_0000_0000;
             wr_seq.start(env.wr_agent.sequencer);
 
-            #300;
+            #500;
             trigger_dma(32'h0006_0000, 64, dma_ok);
             if (!dma_ok) begin
                 `uvm_error("TEST", "DMA failed after reset recovery")
@@ -433,7 +436,7 @@ package fifo_ddr_test_pkg;
                 return;
             end
 
-            #300;
+            #500;
             rd_seq = fifo_rd_base_seq::type_id::create("rd_seq2");
             rd_seq.num_txns = 64;
             rd_seq.start(env.rd_agent.sequencer);

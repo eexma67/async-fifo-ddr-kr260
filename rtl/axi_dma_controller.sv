@@ -2,6 +2,11 @@
 // axi_dma_controller.sv
 // AXI4 DMA Controller: Transfers data between Async FIFO and DDR4
 // Supports burst writes (FIFO->DDR) and burst reads (DDR->FIFO)
+//
+// FIX (Build 10): The async FIFO has a 1-cycle registered read output
+// (BRAM-style). Added S_WR_PREFETCH state to prime the read data pipeline
+// so fifo_rd_data is valid when m_axi_wvalid first asserts in S_WR_DATA.
+// Also registered ddr_base_addr for stable readback addressing.
 // =============================================================================
 
 module axi_dma_controller #(
@@ -78,7 +83,6 @@ module axi_dma_controller #(
     // =========================================================================
     localparam int BYTES_PER_WORD = DATA_WIDTH / 8;
     localparam int AXI_SIZE       = $clog2(BYTES_PER_WORD);
-    // Clamp burst to AXI4 max of 256
     localparam int BURST_LEN      = (DDR_BURST_LEN > 256) ? 256 : DDR_BURST_LEN;
 
     // =========================================================================
@@ -86,9 +90,10 @@ module axi_dma_controller #(
     // =========================================================================
     typedef enum logic [3:0] {
         S_IDLE,
-        S_WR_WAIT_FIFO,    // Wait for FIFO to have enough data
+        S_WR_WAIT_FIFO,    // Wait for FIFO to have data
         S_WR_ADDR,         // Issue AXI write address
-        S_WR_DATA,         // Stream write data from FIFO
+        S_WR_PREFETCH,     // Pre-read first word (FIFO has 1-cycle read latency)
+        S_WR_DATA,         // Stream write data from FIFO to AXI
         S_WR_RESP,         // Wait for write response
         S_RD_ADDR,         // Issue AXI read address
         S_RD_DATA,         // Receive read data, push to readback FIFO
@@ -102,10 +107,12 @@ module axi_dma_controller #(
     // Internal registers
     // =========================================================================
     logic [AXI_ADDR_W-1:0]  current_addr;
+    logic [AXI_ADDR_W-1:0]  rd_base_addr;     // Registered copy for readback
     logic [31:0]            remaining_words;
     logic [31:0]            wr_word_count;
     logic [AXI_LEN_W-1:0]   burst_beat_cnt;
-    logic [AXI_LEN_W-1:0]   current_burst_len;  // Actual burst length - 1
+    logic [AXI_LEN_W-1:0]   current_burst_len; // Actual burst length - 1
+    logic                    prefetch_valid;    // fifo_rd_data has valid prefetch
 
     // =========================================================================
     // Static AXI assignments
@@ -139,10 +146,12 @@ module axi_dma_controller #(
         if (!rst_n) begin
             state             <= S_IDLE;
             current_addr      <= '0;
+            rd_base_addr      <= '0;
             remaining_words   <= '0;
             wr_word_count     <= '0;
             burst_beat_cnt    <= '0;
             current_burst_len <= '0;
+            prefetch_valid    <= 1'b0;
             transfer_done     <= 1'b0;
             transfer_error    <= 1'b0;
             words_transferred <= '0;
@@ -153,8 +162,10 @@ module axi_dma_controller #(
                 S_IDLE: begin
                     transfer_done  <= 1'b0;
                     transfer_error <= 1'b0;
+                    prefetch_valid <= 1'b0;
                     if (transfer_start) begin
                         current_addr      <= ddr_base_addr;
+                        rd_base_addr      <= ddr_base_addr;
                         remaining_words   <= transfer_count;
                         wr_word_count     <= '0;
                         words_transferred <= '0;
@@ -163,11 +174,18 @@ module axi_dma_controller #(
 
                 S_WR_WAIT_FIFO: begin
                     current_burst_len <= calc_burst_len;
+                    prefetch_valid    <= 1'b0;
                 end
 
                 S_WR_ADDR: begin
                     if (m_axi_awvalid && m_axi_awready)
                         burst_beat_cnt <= '0;
+                end
+
+                S_WR_PREFETCH: begin
+                    // fifo_rd_en was asserted in this state (see output logic).
+                    // On the NEXT cycle (entering S_WR_DATA), fifo_rd_data is valid.
+                    prefetch_valid <= 1'b1;
                 end
 
                 S_WR_DATA: begin
@@ -230,7 +248,10 @@ module axi_dma_controller #(
 
             S_WR_ADDR:
                 if (m_axi_awvalid && m_axi_awready)
-                    next_state = S_WR_DATA;
+                    next_state = S_WR_PREFETCH;  // NEW: prefetch before data phase
+
+            S_WR_PREFETCH:
+                next_state = S_WR_DATA;          // Always 1 cycle
 
             S_WR_DATA:
                 if (m_axi_wvalid && m_axi_wready && m_axi_wlast)
@@ -241,20 +262,19 @@ module axi_dma_controller #(
                     if (m_axi_bresp != 2'b00)
                         next_state = S_ERROR;
                     else if (remaining_words <= (current_burst_len + 1))
-                        next_state = S_RD_ADDR;  // Write done, start readback
+                        next_state = S_RD_ADDR;
                     else
                         next_state = S_WR_WAIT_FIFO;
                 end
             end
 
-            // Readback: DDR -> Readback FIFO
             S_RD_ADDR:
                 if (m_axi_arvalid && m_axi_arready)
                     next_state = S_RD_DATA;
 
             S_RD_DATA:
                 if (m_axi_rvalid && m_axi_rready && m_axi_rlast)
-                    next_state = S_DONE;  // Simplified: single readback burst
+                    next_state = S_DONE;
 
             S_DONE:
                 next_state = S_IDLE;
@@ -270,21 +290,28 @@ module axi_dma_controller #(
     // =========================================================================
     // Output logic
     // =========================================================================
-    // FIFO read
-    assign fifo_rd_en = (state == S_WR_DATA) && m_axi_wready && !fifo_rd_empty;
+
+    // FIFO read enable:
+    //   S_WR_PREFETCH: read first word to prime the pipeline
+    //   S_WR_DATA:     read next word when current beat accepted (not on last beat)
+    assign fifo_rd_en = (state == S_WR_PREFETCH && !fifo_rd_empty) ||
+                        (state == S_WR_DATA && m_axi_wvalid && m_axi_wready
+                         && !m_axi_wlast && !fifo_rd_empty);
 
     // AXI Write address
     assign m_axi_awaddr  = current_addr;
     assign m_axi_awlen   = current_burst_len;
     assign m_axi_awvalid = (state == S_WR_ADDR);
 
-    // AXI Write data
+    // AXI Write data — fifo_rd_data is valid because:
+    //   First beat:      prefetched in S_WR_PREFETCH (data appears 1 cycle later)
+    //   Subsequent beats: pre-read on previous beat acceptance
     assign m_axi_wdata  = fifo_rd_data;
-    assign m_axi_wvalid = (state == S_WR_DATA) && !fifo_rd_empty;
+    assign m_axi_wvalid = (state == S_WR_DATA) && prefetch_valid;
     assign m_axi_wlast  = (state == S_WR_DATA) && (burst_beat_cnt == current_burst_len);
 
-    // AXI Read address (readback from DDR base)
-    assign m_axi_araddr  = ddr_base_addr;
+    // AXI Read address — use registered base address
+    assign m_axi_araddr  = rd_base_addr;
     assign m_axi_arlen   = current_burst_len;
     assign m_axi_arvalid = (state == S_RD_ADDR);
 

@@ -331,13 +331,7 @@ package fifo_ddr_env_pkg;
 
         function void report_phase(uvm_phase phase);
             super.report_phase(phase);
-            `uvm_info("SCB", $sformatf(
-                "\n============================================\n" +
-                "  SCOREBOARD SUMMARY\n" +
-                "  Matches:    %0d\n" +
-                "  Mismatches: %0d\n" +
-                "  Remaining:  %0d (in expected queue)\n" +
-                "============================================",
+            `uvm_info("SCB", $sformatf("SCOREBOARD SUMMARY: Matches=%0d Mismatches=%0d Remaining=%0d",
                 match_count, mismatch_count, expected_q.size()), UVM_LOW)
 
             if (mismatch_count > 0 || expected_q.size() > 0)
