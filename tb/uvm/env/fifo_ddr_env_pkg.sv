@@ -271,13 +271,19 @@ package fifo_ddr_env_pkg;
     endclass
 
     // =========================================================================
+    // Analysis imp declarations (workaround for xsim UVM 1.2 multi-imp bug)
+    // =========================================================================
+    `uvm_analysis_imp_decl(_wr)
+    `uvm_analysis_imp_decl(_rd)
+
+    // =========================================================================
     // Scoreboard: Data Integrity Checker
     // =========================================================================
     class fifo_ddr_scoreboard extends uvm_scoreboard;
         `uvm_component_utils(fifo_ddr_scoreboard)
 
-        uvm_analysis_imp #(fifo_wr_txn, fifo_ddr_scoreboard) wr_imp;
-        uvm_analysis_imp #(fifo_rd_txn, fifo_ddr_scoreboard) rd_imp;
+        uvm_analysis_imp_wr #(fifo_wr_txn, fifo_ddr_scoreboard) wr_imp;
+        uvm_analysis_imp_rd #(fifo_rd_txn, fifo_ddr_scoreboard) rd_imp;
 
         // Reference queue: expected data
         logic [63:0] expected_q[$];
@@ -297,14 +303,14 @@ package fifo_ddr_env_pkg;
         endfunction
 
         // Capture writes as expected data
-        function void write_wr_imp(fifo_wr_txn txn);
+        function void write_wr(fifo_wr_txn txn);
             expected_q.push_back(txn.data);
             `uvm_info("SCB", $sformatf("WR captured: 0x%016h (queue size: %0d)",
                        txn.data, expected_q.size()), UVM_HIGH)
         endfunction
 
         // Check reads against expected
-        function void write_rd_imp(fifo_rd_txn txn);
+        function void write_rd(fifo_rd_txn txn);
             logic [63:0] exp;
 
             if (expected_q.size() == 0) begin
