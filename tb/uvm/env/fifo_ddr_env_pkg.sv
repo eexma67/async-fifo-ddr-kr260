@@ -128,9 +128,9 @@ package fifo_ddr_env_pkg;
             fifo_wr_txn txn;
             forever begin
                 @(posedge wr_vif.clk);
-                if (wr_vif.wr_cb.wr_en && !wr_vif.wr_cb.wr_full) begin
+                if (wr_vif.mon_cb.wr_en && !wr_vif.mon_cb.wr_full) begin
                     txn = fifo_wr_txn::type_id::create("wr_txn");
-                    txn.data = wr_vif.wr_cb.wr_data;
+                    txn.data = wr_vif.mon_cb.wr_data;
                     ap.write(txn);
                     `uvm_info("WR_MON", txn.convert2string(), UVM_HIGH)
                 end
@@ -200,9 +200,9 @@ package fifo_ddr_env_pkg;
             fifo_rd_txn txn;
             forever begin
                 @(posedge rd_vif.clk);
-                if (rd_vif.rd_cb.rd_en && !rd_vif.rd_cb.rd_empty) begin
+                if (rd_vif.mon_cb.rd_en && !rd_vif.mon_cb.rd_empty) begin
                     txn = fifo_rd_txn::type_id::create("rd_txn");
-                    txn.data = rd_vif.rd_cb.rd_data;
+                    txn.data = rd_vif.mon_cb.rd_data;
                     ap.write(txn);
                     `uvm_info("RD_MON", txn.convert2string(), UVM_HIGH)
                 end

@@ -23,8 +23,17 @@ interface fifo_wr_if #(
         input   wr_count;
     endclocking
 
+    // Monitor clocking block - all signals are inputs for sampling
+    clocking mon_cb @(posedge clk);
+        default input #1;
+        input wr_en;
+        input wr_data;
+        input wr_full;
+        input wr_count;
+    endclocking
+
     modport driver  (clocking wr_cb, input rst_n);
-    modport monitor (clocking wr_cb, input rst_n);
+    modport monitor (clocking mon_cb, input rst_n, input wr_full);
 endinterface
 
 
@@ -49,8 +58,17 @@ interface fifo_rd_if #(
         input   rd_count;
     endclocking
 
+    // Monitor clocking block - all signals are inputs for sampling
+    clocking mon_cb @(posedge clk);
+        default input #1;
+        input rd_en;
+        input rd_data;
+        input rd_empty;
+        input rd_count;
+    endclocking
+
     modport driver  (clocking rd_cb, input rst_n);
-    modport monitor (clocking rd_cb, input rst_n);
+    modport monitor (clocking mon_cb, input rst_n, input rd_empty);
 endinterface
 
 
